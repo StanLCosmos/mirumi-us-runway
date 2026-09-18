@@ -31,18 +31,26 @@ itself with the starting rows on the first request.
 
 That is the whole setup. Send people the deployment URL.
 
-### 3. Optional: an edit password
+### 3. Set the edit password
 
-Anyone who has the URL can edit the board, including deleting rows. To require
-a shared password for writes (reading stays open), add an environment variable
-in Vercel:
+Reading the board is always open — anyone with the link sees it. Changing it
+needs a shared password. Add an environment variable in the Vercel project
+(Settings → Environment Variables):
 
 ```
-EDIT_PASSWORD = <whatever you choose>
+EDIT_PASSWORD = <the password your team shares>
 ```
 
-The page asks for it the first time someone saves a change and remembers it in
-that person's browser. Leave the variable unset for a fully open board.
+Redeploy. The board now opens read-only for everyone, with an **Unlock to
+edit** button in the top bar; entering the password turns on the add / drag /
+edit controls and is remembered in that person's browser until they hit
+**Unlocked** again to clear it.
+
+Keep the password in Vercel only — never in this repository, and never in the
+page source. To change it, edit the variable and redeploy; everyone is asked
+for the new one the next time they save.
+
+Leave `EDIT_PASSWORD` unset and the board is open to anyone with the link.
 
 ## How it stores things
 

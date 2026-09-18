@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 import { SEED } from "./_seed.js";
 
 // One Redis hash holds the board: field = row id, value = the row as JSON.
@@ -62,11 +64,23 @@ function clean(input) {
   return { id, row };
 }
 
+// Reading is always open. Writing needs the shared password, when one is set.
+function locked() {
+  return Boolean(process.env.EDIT_PASSWORD);
+}
+
 function authorized(req) {
   const expected = process.env.EDIT_PASSWORD;
   if (!expected) return true; // no password set: anyone with the link can edit
   const given = req.headers["x-edit-key"];
-  return typeof given === "string" && given === expected;
+  if (typeof given !== "string") return false;
+  // Compare over a fixed width so a wrong guess takes the same time as a
+  // right one, and length alone never leaks.
+  const a = Buffer.alloc(64);
+  const b = Buffer.alloc(64);
+  a.write(String(given).slice(0, 64));
+  b.write(expected.slice(0, 64));
+  return timingSafeEqual(a, b) && given.length === expected.length;
 }
 
 async function readAll(creds) {
@@ -103,14 +117,21 @@ export default async function handler(req, res) {
     // so the page is never blank, and let the page say edits won't persist.
     if (req.method === "GET") {
       const items = Object.entries(SEED).map(([id, row]) => ({ id, ...row }));
-      return res.status(200).json({ storage: "none", items });
+      return res
+        .status(200)
+        .json({ storage: "none", locked: locked(), unlocked: false, items });
     }
     return res.status(503).json({ error: "no database connected" });
   }
 
   try {
     if (req.method === "GET") {
-      return res.status(200).json({ storage: "kv", items: await readAll(creds) });
+      return res.status(200).json({
+        storage: "kv",
+        locked: locked(),
+        unlocked: authorized(req),
+        items: await readAll(creds),
+      });
     }
 
     if (req.method === "POST" || req.method === "PUT") {

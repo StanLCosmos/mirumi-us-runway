@@ -351,6 +351,8 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
 .danger{ color:#d03b3b; border-color:transparent; background:transparent; }
 .danger:hover{ background:rgba(208,59,59,.1); }
 .err{ font-size:12px; color:#d03b3b; margin:0 0 10px; }
+.hint{ font-size:12.5px; color:var(--ink-2); margin:-6px 0 14px; }
+.ctl.on{ border-color:var(--c-comply); color:var(--c-comply); font-weight:600; }
 
 @media (max-width: 720px){
   :root{ --lw:136px; --dayw:17px; --rowh:38px; }
@@ -390,6 +392,7 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
         <button id="langEn" aria-pressed="true">EN</button>
         <button id="langJa" aria-pressed="false">日本語</button>
       </div>
+      <button class="ctl" id="btnLock" hidden></button>
       <button class="ctl primary" id="btnAdd" hidden></button>
     </div>
     <div class="bar-bottom">
@@ -409,6 +412,17 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
 
 <div class="tip" id="tip" hidden></div>
 <div class="scrim" id="scrim" hidden></div>
+<div class="sheet" id="lockSheet" hidden role="dialog" aria-modal="true" aria-labelledby="lockTitle">
+  <h2 id="lockTitle"></h2>
+  <p class="hint" id="lockHint"></p>
+  <p class="err" id="lockErr" hidden></p>
+  <div class="f"><label for="fKey" id="lKey"></label><input id="fKey" type="password" autocomplete="current-password"></div>
+  <div class="sheet-actions">
+    <div class="spacer"></div>
+    <button class="ctl" id="btnLockCancel"></button>
+    <button class="ctl primary" id="btnLockOk"></button>
+  </div>
+</div>
 <div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
   <h2 id="sheetTitle"></h2>
   <p class="err" id="sheetErr" hidden></p>
@@ -441,7 +455,12 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
       offline:"Can’t reach the server — your change wasn’t saved",
       demo:"Sample data — no database connected yet, edits won’t be saved",
       live:"Live — anyone with the link can edit",
-      keyPrompt:"Enter the edit password",
+      viewing:"View only — unlock to edit",
+      editing:"Unlocked — your edits are saved for everyone",
+      unlock:"Unlock to edit", relock:"Unlocked", locking:"Lock again",
+      lockT:"Enter the edit password",
+      lockHint:"Everyone can read this board. The password is only needed to change it.",
+      fKey:"Password", unlockBtn:"Unlock", wrongKey:"That password didn’t work.",
       emptyH:"No projects yet",
       emptyP:"Add the first row to start building the timeline. Everyone with the link sees the same board.",
       projects:"Projects", range:"Sep–Dec 2026",
@@ -464,7 +483,12 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
       offline:"サーバーに接続できません — 変更は保存されていません",
       demo:"サンプルデータ — データベース未接続のため保存されません",
       live:"共有中 — リンクを知っている全員が編集できます",
-      keyPrompt:"編集パスワードを入力してください",
+      viewing:"閲覧のみ — 編集するにはロック解除",
+      editing:"ロック解除済み — 変更は全員に反映されます",
+      unlock:"ロック解除して編集", relock:"編集可能", locking:"再ロック",
+      lockT:"編集パスワードを入力",
+      lockHint:"閲覧は誰でもできます。パスワードは変更するときだけ必要です。",
+      fKey:"パスワード", unlockBtn:"解除", wrongKey:"パスワードが違います。",
       emptyH:"項目がまだありません",
       emptyP:"最初の行を追加してスケジュールを作り始めてください。リンクを持つ全員が同じ表を見ます。",
       projects:"項目", range:"2026年9〜12月",
@@ -532,6 +556,7 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
   var hidden = {};          // cat id -> true
   var storage = null, canWrite = true, ready = false, scrolled = false;
   var offline = false, dragging = false, lastJson = "", pollTimer = null;
+  var locked = false, unlocked = false;
   var range = {start:null, end:null, n:0};
 
   var $ = function(id){ return document.getElementById(id); };
@@ -965,13 +990,40 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
       return r.status===204 ? null : r.json();
     });
   }
-  function askKey(retry){
-    var v=window.prompt(t().keyPrompt, "");
-    if(v===null) return;
-    editKey=v.trim();
-    try{ localStorage.setItem("mirumi.key", editKey); }catch(e){}
-    if(retry) retry();
+  function openLock(){
+    $("lockErr").hidden=true;
+    $("fKey").value="";
+    $("scrim").hidden=false; $("lockSheet").hidden=false;
+    setTimeout(function(){ $("fKey").focus(); },20);
   }
+  function closeLock(){ $("scrim").hidden=true; $("lockSheet").hidden=true; }
+
+  function submitLock(){
+    var v=$("fKey").value.trim();
+    if(!v){ return; }
+    var prev=editKey; editKey=v;
+    api("GET","").then(function(data){
+      if(data && data.unlocked){
+        unlocked=true;
+        try{ localStorage.setItem("mirumi.key", editKey); }catch(e){}
+        closeLock(); setCanWrite(true); setStatus();
+      }else{
+        editKey=prev;
+        var p=$("lockErr"); p.textContent=t().wrongKey; p.hidden=false;
+      }
+    }).catch(function(){
+      editKey=prev;
+      var p=$("lockErr"); p.textContent=t().wrongKey; p.hidden=false;
+    });
+  }
+
+  function relock(){
+    editKey=""; unlocked=false;
+    try{ localStorage.removeItem("mirumi.key"); }catch(e){}
+    setCanWrite(false); setStatus();
+  }
+
+  function anySheetOpen(){ return !sheet.hidden || !$("lockSheet").hidden; }
 
   function normalize(v, id){
     return {
@@ -989,7 +1041,7 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
     api("POST","",normalize(body, body.id)).then(function(){
       lastJson=""; offline=false; setStatus();
     }).catch(function(e){
-      if(e && e.status===401){ askKey(function(){ save(body); }); return; }
+      if(e && e.status===401){ unlocked=false; setCanWrite(false); openLock(); return; }
       offline=true; setStatus();
     });
   }
@@ -1003,7 +1055,7 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
     api("DELETE","?id="+encodeURIComponent(id)).then(function(){
       lastJson=""; offline=false; setStatus();
     }).catch(function(e){
-      if(e && e.status===401){ askKey(removeItem); return; }
+      if(e && e.status===401){ unlocked=false; setCanWrite(false); openLock(); return; }
       offline=true; setStatus();
     });
   }
@@ -1014,11 +1066,15 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
     return api("GET","").then(function(data){
       offline=false; ready=true;
       storage = (data && data.storage) || "none";
-      if(storage==="none" && canWrite!==false) setCanWrite(false);
+      locked = !!(data && data.locked);
+      unlocked = !!(data && data.unlocked);
+      var may = storage!=="none" && (unlocked || !locked);
+      if(canWrite!==may) setCanWrite(may);
+      syncLockButton();
       var rows=(data && data.items) || [];
       var j=JSON.stringify(rows);
       if(j===lastJson){ setStatus(); return; }
-      if(dragging || !sheet.hidden){ setStatus(); return; }
+      if(dragging || anySheetOpen()){ setStatus(); return; }
       lastJson=j;
       items=rows.map(function(r){ return normalize(r); });
       setStatus(); render();
@@ -1031,7 +1087,15 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
   function setCanWrite(v){
     canWrite=v;
     $("btnAdd").hidden = (v===false);
+    syncLockButton();
     setStatus(); render();
+  }
+  function syncLockButton(){
+    var b=$("btnLock");
+    b.hidden = !locked || storage==="none";
+    b.textContent = unlocked ? t().relock : t().unlock;
+    b.classList.toggle("on", unlocked);
+    b.title = unlocked ? t().locking : "";
   }
   function setStatus(){
     var el=$("status");
@@ -1039,7 +1103,8 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
     if(!ready){ el.textContent=t().loading; return; }
     if(offline){ el.textContent=t().offline; el.classList.add("warn"); el.classList.add("alert"); return; }
     if(storage==="none"){ el.textContent=t().demo; el.classList.add("warn"); el.classList.add("alert"); return; }
-    if(canWrite===false){ el.textContent=t().readonly; el.classList.add("alert"); return; }
+    if(locked && !unlocked){ el.textContent=t().viewing; el.classList.add("alert"); return; }
+    if(locked && unlocked){ el.textContent=t().editing; return; }
     el.textContent=t().live;
   }
 
@@ -1067,6 +1132,10 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
     $("lEn").textContent=t().fEn; $("lJa").textContent=t().fJa; $("lCat").textContent=t().fCat;
     $("lStart").textContent=t().fStart; $("lEnd").textContent=t().fEnd; $("lNote").textContent=t().fNote;
     $("btnSave").textContent=t().save; $("btnCancel").textContent=t().cancel; $("btnDelete").textContent=t().del;
+    $("lockTitle").textContent=t().lockT; $("lockHint").textContent=t().lockHint;
+    $("lKey").textContent=t().fKey; $("btnLockOk").textContent=t().unlockBtn;
+    $("btnLockCancel").textContent=t().cancel;
+    syncLockButton();
     setStatus(); render();
   }
   function setLang(v){
@@ -1080,11 +1149,17 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
   $("btnToday").addEventListener("click",function(){ jumpToToday(true); });
   $("btnAdd").addEventListener("click",function(){ openSheet(null); });
   $("btnCancel").addEventListener("click",closeSheet);
-  $("scrim").addEventListener("click",closeSheet);
+  $("btnLock").addEventListener("click",function(){ unlocked ? relock() : openLock(); });
+  $("btnLockOk").addEventListener("click",submitLock);
+  $("btnLockCancel").addEventListener("click",closeLock);
+  $("fKey").addEventListener("keydown",function(ev){ if(ev.key==="Enter"){ ev.preventDefault(); submitLock(); } });
+  $("scrim").addEventListener("click",function(){ closeSheet(); closeLock(); });
   $("btnSave").addEventListener("click",commitSheet);
   $("btnDelete").addEventListener("click",removeItem);
   document.addEventListener("keydown",function(ev){
-    if(ev.key==="Escape" && !sheet.hidden) closeSheet();
+    if(ev.key!=="Escape") return;
+    if(!sheet.hidden) closeSheet();
+    if(!$("lockSheet").hidden) closeLock();
   });
   var rt=null;
   window.addEventListener("resize",function(){
@@ -1095,7 +1170,7 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
   applyLang();
 
   /* ========================== boot ========================== */
-  setCanWrite(true);
+  setCanWrite(false);
   pull();
   pollTimer = setInterval(function(){ if(!document.hidden) pull(); }, 5000);
   document.addEventListener("visibilitychange", function(){ if(!document.hidden) pull(); });
