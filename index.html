@@ -274,6 +274,18 @@ body.lang-ja .ghead-l .nm{ text-transform:none; letter-spacing:.02em; font-size:
 .rowctl button:hover{ background:var(--surface-3); color:var(--ink); }
 .rowctl button[disabled]{ opacity:0 !important; cursor:default; }
 .rl:hover .rowctl button[disabled]{ opacity:.25 !important; }
+.withtr{ position:relative; display:flex; align-items:center; }
+.withtr input{ padding-right:38px; }
+.tr{
+  position:absolute; right:5px; width:26px; height:26px; border-radius:6px;
+  border:1px solid var(--line); background:var(--surface);
+  cursor:pointer; color:var(--ink-3); font-size:12px; font-weight:700;
+  display:flex; align-items:center; justify-content:center;
+}
+.tr:hover{ color:var(--ink); border-color:var(--line-strong); }
+.tr[disabled]{ opacity:.5; cursor:default; }
+.tr.busy{ color:var(--focus); border-color:var(--focus); }
+.f.pending input{ color:var(--ink-3); font-style:italic; }
 .swatches{ display:flex; flex-wrap:wrap; gap:7px; }
 .swatches button{
   width:30px; height:30px; border-radius:8px; cursor:pointer;
@@ -442,8 +454,10 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
 <div class="sheet" id="catSheet" hidden role="dialog" aria-modal="true" aria-labelledby="catTitle">
   <h2 id="catTitle"></h2>
   <p class="err" id="catErr" hidden></p>
-  <div class="f"><label for="cEn" id="lCEn"></label><input id="cEn" type="text" autocomplete="off"></div>
-  <div class="f"><label for="cJa" id="lCJa"></label><input id="cJa" type="text" autocomplete="off"></div>
+  <div class="f"><label for="cEn" id="lCEn"></label>
+    <div class="withtr"><input id="cEn" type="text" autocomplete="off"><button class="tr" id="trCEn" type="button" hidden>あ</button></div></div>
+  <div class="f"><label for="cJa" id="lCJa"></label>
+    <div class="withtr"><input id="cJa" type="text" autocomplete="off"><button class="tr" id="trCJa" type="button" hidden>A</button></div></div>
   <div class="f"><span id="lCColor"></span><div class="swatches" id="cColor" role="group"></div></div>
   <div class="sheet-actions">
     <button class="ctl danger" id="btnCatDelete"></button>
@@ -466,8 +480,10 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
 <div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
   <h2 id="sheetTitle"></h2>
   <p class="err" id="sheetErr" hidden></p>
-  <div class="f"><label for="fEn" id="lEn"></label><input id="fEn" type="text" autocomplete="off"></div>
-  <div class="f"><label for="fJa" id="lJa"></label><input id="fJa" type="text" autocomplete="off"></div>
+  <div class="f"><label for="fEn" id="lEn"></label>
+    <div class="withtr"><input id="fEn" type="text" autocomplete="off"><button class="tr" id="trEn" type="button" hidden>あ</button></div></div>
+  <div class="f"><label for="fJa" id="lJa"></label>
+    <div class="withtr"><input id="fJa" type="text" autocomplete="off"><button class="tr" id="trJa" type="button" hidden>A</button></div></div>
   <div class="f"><label for="fCat" id="lCat"></label><select id="fCat"></select></div>
   <div class="f2">
     <div class="f"><label for="fStart" id="lStart"></label><input id="fStart" type="date"></div>
@@ -512,6 +528,8 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
       catBusy:"Move its projects elsewhere before deleting this category.",
       catLast:"A board needs at least one category.",
       noRows:"No projects in this category yet",
+      toJa:"Translate to Japanese", toEn:"Translate to English",
+      translating:"Translating…", trFail:"Couldn’t translate — type it in instead.",
       fEn:"Name (English)", fJa:"Name (Japanese)", fCat:"Category",
       fStart:"Start date", fEnd:"End date", fNote:"Note (optional)",
       save:"Save", cancel:"Cancel", del:"Delete",
@@ -546,6 +564,8 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
       catBusy:"削除する前に、含まれる項目を他のカテゴリへ移してください。",
       catLast:"カテゴリは最低1つ必要です。",
       noRows:"このカテゴリにはまだ項目がありません",
+      toJa:"日本語に翻訳", toEn:"英語に翻訳",
+      translating:"翻訳中…", trFail:"翻訳できませんでした。手入力してください。",
       fEn:"名称（英語）", fJa:"名称（日本語）", fCat:"カテゴリ",
       fStart:"開始日", fEnd:"終了日", fNote:"メモ（任意）",
       save:"保存", cancel:"キャンセル", del:"削除",
@@ -1189,6 +1209,7 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
     $("fEnd").value   = it ? it.end   : iso(addDays(TODAY,6));
     $("fNote").value  = it ? (lang==="ja" ? (it.note_ja||"") : (it.note_en||"")) : "";
     $("btnDelete").hidden = !it;
+    resetTranslateState();
     scrim.hidden=false; sheet.hidden=false;
     setTimeout(function(){ $("fEn").focus(); },20);
   }
@@ -1219,6 +1240,72 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
     }, 0) + 10;
   }
 
+  /* ======================== translation ========================= */
+  var canTranslate=false;
+
+  /* Pairs a name field with its counterpart. `auto` records that the other
+     side was filled by translation, so a later edit may replace it — anything
+     a person typed is left alone. */
+  function wireTranslate(fromId, toId, btnId, target){
+    var from=$(fromId), to=$(toId), btn=$(btnId);
+    var state={ auto:false, seq:0 };
+
+    function run(force){
+      var text=from.value.trim();
+      if(!canTranslate || !text) return;
+      if(!force && to.value.trim() && !state.auto) return;
+      if(!force && !to.value.trim() && from._lastSent===text) return;
+      from._lastSent=text;
+
+      var mine=++state.seq;
+      btn.classList.add("busy"); btn.disabled=true;
+      to.parentNode.parentNode.classList.add("pending");
+      var was=to.value;
+      to.value=t().translating;
+
+      api("POST","",{text:text, to:target},"/api/translate").then(function(r){
+        if(mine!==state.seq) return;
+        to.value=(r && r.text) || was;
+        state.auto=true;
+      }).catch(function(e){
+        if(mine!==state.seq) return;
+        to.value=was;
+        if(e && e.status===401){ unlocked=false; setCanWrite(false); openLock(); return; }
+        if(e && e.status===503){ canTranslate=false; syncTranslateButtons(); return; }
+        showAnyErr(t().trFail);
+      }).then(function(){
+        if(mine!==state.seq) return;
+        btn.classList.remove("busy"); btn.disabled=false;
+        to.parentNode.parentNode.classList.remove("pending");
+      });
+    }
+
+    btn.addEventListener("click", function(){ run(true); });
+    from.addEventListener("blur", function(){ run(false); });
+    to.addEventListener("input", function(){ state.auto=false; });
+    from._trState=state;
+  }
+
+  function resetTranslateState(){
+    ["fEn","fJa","cEn","cJa"].forEach(function(id){
+      var el=$(id);
+      el._lastSent=null;
+      if(el._trState){ el._trState.auto=false; el._trState.seq++; }
+    });
+    ["trEn","trJa","trCEn","trCJa"].forEach(function(id){
+      $(id).classList.remove("busy"); $(id).disabled=false;
+    });
+  }
+
+  function syncTranslateButtons(){
+    ["trEn","trJa","trCEn","trCJa"].forEach(function(id){ $(id).hidden=!canTranslate; });
+  }
+
+  function showAnyErr(m){
+    var p = $("catSheet").hidden ? $("sheetErr") : $("catErr");
+    p.textContent=m; p.hidden=false;
+  }
+
   /* ====================== category editing ====================== */
   var editingCat=null, pickedColor=1;
 
@@ -1232,6 +1319,7 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
     $("cJa").value = c ? (c.ja||"") : "";
     renderSwatches();
     $("btnCatDelete").hidden = !c;
+    resetTranslateState();
     $("scrim").hidden=false; $("catSheet").hidden=false;
     setTimeout(function(){ $("cEn").focus(); },20);
   }
@@ -1365,6 +1453,7 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
     api("GET","").then(function(data){
       if(data && data.unlocked){
         unlocked=true;
+        canTranslate = !!(data && data.translate);
         try{ localStorage.setItem("mirumi.key", editKey); }catch(e){}
         closeLock(); setCanWrite(true); setStatus();
       }else{
@@ -1453,6 +1542,8 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
       unlocked = !!(data && data.unlocked);
       var may = storage!=="none" && (unlocked || !locked);
       if(canWrite!==may) setCanWrite(may);
+      canTranslate = !!(data && data.translate) && may;
+      syncTranslateButtons();
       syncLockButton();
       var rows=(data && data.items) || [];
       var cs=(data && data.cats) || [];
@@ -1476,6 +1567,8 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
     canWrite=v;
     $("btnAdd").hidden = (v===false);
     $("btnAddCat").hidden = (v===false);
+    if(v===false) canTranslate=false;
+    syncTranslateButtons();
     syncLockButton();
     setStatus(); render();
   }
@@ -1521,6 +1614,10 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
     $("lCColor").textContent=t().cColor;
     $("btnCatSave").textContent=t().save; $("btnCatCancel").textContent=t().cancel;
     $("btnCatDelete").textContent=t().del;
+    $("trEn").title=t().toJa; $("trCEn").title=t().toJa;
+    $("trJa").title=t().toEn; $("trCJa").title=t().toEn;
+    $("trEn").setAttribute("aria-label",t().toJa); $("trCEn").setAttribute("aria-label",t().toJa);
+    $("trJa").setAttribute("aria-label",t().toEn); $("trCJa").setAttribute("aria-label",t().toEn);
     $("langEn").setAttribute("aria-pressed", lang==="en"?"true":"false");
     $("langJa").setAttribute("aria-pressed", lang==="ja"?"true":"false");
     $("lEn").textContent=t().fEn; $("lJa").textContent=t().fJa; $("lCat").textContent=t().fCat;
@@ -1552,6 +1649,10 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
   $("btnCatSave").addEventListener("click",commitCatSheet);
   $("btnCatCancel").addEventListener("click",closeCatSheet);
   $("btnCatDelete").addEventListener("click",removeCat);
+  wireTranslate("fEn","fJa","trEn","ja");
+  wireTranslate("fJa","fEn","trJa","en");
+  wireTranslate("cEn","cJa","trCEn","ja");
+  wireTranslate("cJa","cEn","trCJa","en");
   $("btnSave").addEventListener("click",commitSheet);
   $("btnDelete").addEventListener("click",removeItem);
   document.addEventListener("keydown",function(ev){

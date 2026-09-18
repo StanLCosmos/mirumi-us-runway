@@ -4,5 +4,10 @@
   "private": true,
   "type": "module",
   "description": "Shared bilingual launch timeline for the mirumi US rollout",
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.126.0"
+  }
 }

@@ -52,6 +52,24 @@ for the new one the next time they save.
 
 Leave `EDIT_PASSWORD` unset and the board is open to anyone with the link.
 
+### 4. Optional: fill in the other language automatically
+
+Every name on the board — projects and categories alike — is kept in English
+and Japanese. With an Anthropic API key configured, typing one and leaving the
+field fills in the other, and a button on each field translates on demand.
+
+```
+ANTHROPIC_API_KEY = <a key from console.anthropic.com>
+```
+
+Redeploy. Without the variable the feature simply isn't there: the buttons stay
+hidden and both names are typed by hand. Translating is a write, so it needs
+the edit password like everything else.
+
+The endpoint is `api/translate.js`. It asks Claude for the label alone, holds
+product and retailer names fixed, and caps the input at 200 characters, so a
+call is a few hundred tokens.
+
 ## How it stores things
 
 One Redis hash, `mirumi:items`, with one field per row holding that row as
@@ -84,6 +102,7 @@ already live.
 | `DELETE` | `/api/items?id=…` | Remove one row |
 | `POST` | `/api/cats` | Create or replace one category |
 | `DELETE` | `/api/cats?id=…` | Remove a category, if it is empty and not the last |
+| `POST` | `/api/translate` | `{text, to: "en" \| "ja"}` → `{text}`; 503 when no key is set |
 
 A row is `{id, en, ja, cat, start, end, note_en, note_ja, sort}` and a category
 is `{id, en, ja, color, sort}`. Dates are `YYYY-MM-DD`; `cat` is a category id.
@@ -127,6 +146,10 @@ twice — the group header and the label on every bar still say which is which.
 - **Filter** — click a colour chip in the legend to hide that category. The
   choice is remembered per person, not shared.
 - **Language** — EN / 日本語 in the top right, also remembered per person.
+- **Translate** — with a key configured (step 4), leaving a name field fills
+  the other language if it is still empty or was itself translated. Anything
+  typed by hand is never overwritten; the button on each field translates over
+  it when you do want that.
 
 Key commercial dates (Halloween, Thanksgiving, Black Friday, Cyber Monday, the
 ground-shipping cutoff, Christmas) are drawn as marked lines and shaded bands.

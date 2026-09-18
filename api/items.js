@@ -22,6 +22,7 @@ export default async function handler(req, res) {
         storage: "none",
         locked: locked(),
         unlocked: false,
+        translate: false,
         ...seedBoard(),
       });
     }
@@ -34,6 +35,8 @@ export default async function handler(req, res) {
         storage: "kv",
         locked: locked(),
         unlocked: authorized(req),
+        // The page hides its translate buttons when no key is configured.
+        translate: Boolean(process.env.ANTHROPIC_API_KEY),
         ...(await readBoard(creds)),
       });
     }
