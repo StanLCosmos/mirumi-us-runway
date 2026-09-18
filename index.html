@@ -320,12 +320,12 @@ body.lang-ja .ghead-l .alt{ text-transform:uppercase; letter-spacing:.06em; font
   font-size:11.5px; color:var(--ink-3); font-style:italic;
 }
 .dropline{
-  position:absolute; left:0; height:2px; background:var(--focus);
+  position:absolute; left:0; height:2px; background:var(--k, var(--focus));
   z-index:6; pointer-events:none; border-radius:2px;
 }
 .dropline::before{
   content:""; position:absolute; left:0; top:-3px;
-  width:8px; height:8px; border-radius:50%; background:var(--focus);
+  width:8px; height:8px; border-radius:50%; background:var(--k, var(--focus));
 }
 .track{ position:relative; height:var(--rowh); border-bottom:1px solid var(--line); }
 
@@ -840,27 +840,14 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
       renderChrome(); renderLegend(); return;
     }
 
-    var groupPos={}, seen={};
-    list.forEach(function(it){
-      seen[it.cat]=(seen[it.cat]||0);
-      groupPos[it.id]={ i:seen[it.cat]++, n:0 };
-    });
-    list.forEach(function(it){ groupPos[it.id].n = seen[it.cat]; });
-
-    rowEls={};
-    // Walk the categories, so an empty one still shows its header and can be
-    // renamed, recoloured, moved or removed.
-    var orphans = list.filter(function(x){ return !catOf(x.cat); });
-    var groups = cats.filter(function(c){ return !hidden[c.id]; }).map(function(c,i){
-      return { cat:c, rows:list.filter(function(x){ return x.cat===c.id; }) };
-    });
-    if(orphans.length){
-      var byOrphan={};
-      orphans.forEach(function(x){ (byOrphan[x.cat]=byOrphan[x.cat]||[]).push(x); });
-      Object.keys(byOrphan).forEach(function(k){
-        groups.push({ cat:{id:k, color:1, orphan:true}, rows:byOrphan[k] });
+    rowEls={}; ghostEls={};
+    var groups = buildGroups(list);
+    flatPos = {};
+    groups.forEach(function(g, gi){
+      g.rows.forEach(function(r, ri){
+        flatPos[r.id] = { gi:gi, ri:ri, gn:groups.length, rn:g.rows.length };
       });
-    }
+    });
 
     groups.forEach(function(g, gi){
       var c=g.cat;
@@ -890,6 +877,7 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
 
       if(!g.rows.length){
         var gh=document.createElement("div"); gh.className="rl ghost";
+        ghostEls[c.id]=gh;
         gh.textContent=t().noRows;
         var gt=document.createElement("div"); gt.className="track";
         grid.appendChild(gh); grid.appendChild(gt);
@@ -901,10 +889,12 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
       rl.appendChild(nmw);
       rowEls[it.id]=rl;
       if(canWrite!==false){
-        var pos=groupPos[it.id] || {i:0,n:1};
+        var pos=flatPos[it.id] || {gi:0,ri:0,gn:1,rn:1};
+        var atTop    = pos.gi===0 && pos.ri===0;
+        var atBottom = pos.gi===pos.gn-1 && pos.ri===pos.rn-1;
         var ctl=document.createElement("span"); ctl.className="rowctl";
-        ctl.appendChild(rowBtn("\u2191", t().up, it, function(x){ moveRow(x,-1); }, pos.i===0));
-        ctl.appendChild(rowBtn("\u2193", t().down, it, function(x){ moveRow(x,1); }, pos.i===pos.n-1));
+        ctl.appendChild(rowBtn("\u2191", t().up, it, function(x){ moveRow(x,-1); }, atTop));
+        ctl.appendChild(rowBtn("\u2193", t().down, it, function(x){ moveRow(x,1); }, atBottom));
         ctl.appendChild(rowBtn("\u270E", t().editT, it, function(x){ openSheet(x); }, false));
         rl.appendChild(ctl);
         rl.classList.add("draggable");
@@ -955,7 +945,9 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
 
   /* ---------------------- reordering rows ---------------------- */
   var rowEls = {};          // item id -> its label element, rebuilt each render
-  var dropIndex = null;     // where a row-drag would land
+  var ghostEls = {};        // category id -> its "no projects" row, same
+  var flatPos = {};         // item id -> where it sits across the whole board
+  var dropAt = null;        // {cat, index} a row-drag would land on
   var dropEl = null;
 
   function groupOf(cat){
@@ -966,70 +958,124 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
     return -1;
   }
 
-  /* Give the moved row a sort value between its new neighbours, so one move
-     is one write. Only renumber the group when the gap has collapsed. */
-  function applyOrder(it, newIndex){
-    if(canWrite===false) return;
-    var g = groupOf(it.cat);
-    var cur = indexIn(g, it.id);
-    if(cur<0) return;
-    if(newIndex<0) newIndex=0;
-    if(newIndex>g.length-1) newIndex=g.length-1;
-    if(newIndex===cur) return;
+  /* The visible board as groups, in display order. Categories the legend has
+     hidden are left out — they are not somewhere you can see a row land. */
+  function buildGroups(list){
+    var gs = cats.filter(function(c){ return !hidden[c.id]; }).map(function(c){
+      return { cat:c, rows:list.filter(function(x){ return x.cat===c.id; }) };
+    });
+    var orphans = list.filter(function(x){ return !catOf(x.cat); });
+    if(orphans.length){
+      var byOrphan={};
+      orphans.forEach(function(x){ (byOrphan[x.cat]=byOrphan[x.cat]||[]).push(x); });
+      Object.keys(byOrphan).forEach(function(k){
+        gs.push({ cat:{id:k, color:1, orphan:true}, rows:byOrphan[k] });
+      });
+    }
+    return gs;
+  }
+  function visibleGroups(){ return buildGroups(sortItems(visibleItems())); }
 
-    var arr=g.slice(); arr.splice(cur,1); arr.splice(newIndex,0,it);
-    var before=arr[newIndex-1], after=arr[newIndex+1];
+  /* Put a row at `index` of `catId`, changing its category if that differs
+     from where it is now. One write: the row takes a sort value midway
+     between its new neighbours, and only a collapsed gap renumbers the group. */
+  function applyMove(it, catId, index){
+    if(canWrite===false) return;
+    var rest = groupOf(catId).filter(function(x){ return x.id!==it.id; });
+    if(index<0) index=0;
+    if(index>rest.length) index=rest.length;
+    if(catId===it.cat && index===indexIn(groupOf(catId), it.id)) return;
+
+    var before=rest[index-1], after=rest[index];
     var v;
     if(!before && !after) v = 10;
     else if(!before)      v = (after.sort||0) - 10;
     else if(!after)       v = (before.sort||0) + 10;
     else                  v = ((before.sort||0) + (after.sort||0)) / 2;
 
+    var moved = Object.assign({}, it, {cat:catId, sort:v});
+
     if((before && v<=(before.sort||0)) || (after && v>=(after.sort||0))){
+      var arr=rest.slice(); arr.splice(index,0,moved);
       var rows=[];
       arr.forEach(function(x,i){
         var want=(i+1)*10;
-        if((x.sort||0)!==want) rows.push(Object.assign({}, x, {sort:want}));
+        if((x.sort||0)!==want || x.id===it.id){
+          rows.push(Object.assign({}, x, {sort:want, cat:catId}));
+        }
       });
       saveMany(rows);
       return;
     }
-    save(Object.assign({}, it, {sort:v}));
+    save(moved);
   }
 
+  /* An arrow at the edge of a group steps into the neighbouring one rather
+     than doing nothing — the board reads as one list, not six. */
   function moveRow(it, dir){
-    var g=groupOf(it.cat);
-    applyOrder(it, indexIn(g, it.id) + dir);
+    var gs=visibleGroups(), gi=-1, ri=-1;
+    for(var i=0;i<gs.length && gi<0;i++){
+      var k=indexIn(gs[i].rows, it.id);
+      if(k>=0){ gi=i; ri=k; }
+    }
+    if(gi<0) return;
+    if(dir<0){
+      if(ri>0) applyMove(it, gs[gi].cat.id, ri-1);
+      else if(gi>0) applyMove(it, gs[gi-1].cat.id, gs[gi-1].rows.length);
+    }else{
+      if(ri < gs[gi].rows.length-1) applyMove(it, gs[gi].cat.id, ri+1);
+      else if(gi < gs.length-1) applyMove(it, gs[gi+1].cat.id, 0);
+    }
+  }
+
+  /* Every place a row could land, across every visible group: above each row,
+     below the last row of a group, and the empty slot in an empty one. */
+  function dropSlots(){
+    var slots=[];
+    visibleGroups().forEach(function(g){
+      if(!g.rows.length){
+        var ge=ghostEls[g.cat.id];
+        if(ge) slots.push({ cat:g.cat.id, index:0, el:ge, edge:"top" });
+        return;
+      }
+      g.rows.forEach(function(r,k){
+        var el=rowEls[r.id];
+        if(el) slots.push({ cat:g.cat.id, index:k, el:el, edge:"top" });
+      });
+      var lastEl=rowEls[g.rows[g.rows.length-1].id];
+      if(lastEl) slots.push({ cat:g.cat.id, index:g.rows.length, el:lastEl, edge:"bottom" });
+    });
+    return slots;
   }
 
   function showDropLine(it, clientY){
-    var g=groupOf(it.cat);
-    var boundary=g.length, k;
-    for(k=0;k<g.length;k++){
-      var el=rowEls[g[k].id];
-      if(!el) continue;
-      var r=el.getBoundingClientRect();
-      if(clientY < r.top + r.height/2){ boundary=k; break; }
-    }
-    var cur=indexIn(g, it.id);
-    dropIndex = boundary > cur ? boundary-1 : boundary;
+    var best=null, bestY=0, bestD=Infinity;
+    dropSlots().forEach(function(s){
+      var r=s.el.getBoundingClientRect();
+      var y = s.edge==="top" ? r.top : r.bottom;
+      var d = Math.abs(clientY-y);
+      if(d<bestD){ bestD=d; best=s; bestY=y; }
+    });
+    if(!best) return;
+
+    var index=best.index;
+    var cur = best.cat===it.cat ? indexIn(groupOf(it.cat), it.id) : -1;
+    if(cur>=0 && cur<index) index--;
+    dropAt = { cat:best.cat, index:index };
 
     if(!dropEl){
       dropEl=document.createElement("div"); dropEl.className="dropline";
       $("canvas").appendChild(dropEl);
     }
     var canvasTop=$("canvas").getBoundingClientRect().top;
-    var anchor = boundary < g.length ? rowEls[g[boundary].id] : rowEls[g[g.length-1].id];
-    if(!anchor){ return; }
-    var ar=anchor.getBoundingClientRect();
-    var y = boundary < g.length ? ar.top : ar.bottom;
-    dropEl.style.top = (y - canvasTop - 1) + "px";
+    dropEl.style.top = (bestY - canvasTop - 1) + "px";
     dropEl.style.width = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--lw")) + range.n*dayW()) + "px";
-    dropEl.hidden = (dropIndex === cur);
+    dropEl.style.setProperty("--k", catColor(best.cat));
+    dropEl.hidden = (cur>=0 && index===cur);
   }
   function hideDropLine(){
     if(dropEl && dropEl.parentNode) dropEl.parentNode.removeChild(dropEl);
-    dropEl=null; dropIndex=null;
+    dropEl=null; dropAt=null;
   }
 
   /* Mouse only: on touch the label column has to stay scrollable, so the
@@ -1053,10 +1099,10 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
       if(!active) return;
       active=false; rl.classList.remove("reordering");
       try{ rl.releasePointerCapture(ev.pointerId); }catch(e){}
-      var target=dropIndex;
+      var target=dropAt;
       var did=moved;
       hideDropLine();
-      if(did && target!==null) applyOrder(it, target);
+      if(did && target) applyMove(it, target.cat, target.index);
     }
     rl.addEventListener("pointerup", finish);
     rl.addEventListener("pointercancel", function(){

@@ -115,11 +115,18 @@ board at 400 rows and 24 categories.
   own category.
 - **Move in time** — drag a bar sideways; drag either end to change just the
   start or just the end. Everything snaps to whole days.
-- **Reorder** — drag a row's label up or down, or use the ↑ ↓ buttons beside
-  it. Rows only move within their own category; to move one to a different
-  category, change the category in the editor. Order is shared, not per
-  person. On a phone the arrows are the way to do it, so that dragging a
-  label still scrolls the page.
+- **Reorder, across categories** — drag a row's label up or down, or use the
+  ↑ ↓ buttons beside it. The board behaves as one list: a row dragged past a
+  category header joins that category, taking its colour, and an arrow at the
+  edge of a group steps into the neighbouring one rather than stopping. The
+  drop line is drawn in the colour of the category the row would land in, and
+  an empty category can be dropped into. Only the very first and very last row
+  of the whole board have an arrow disabled. Order is shared, not per person.
+  On a phone the arrows are the way to do it, so that dragging a label still
+  scrolls the page.
+
+  A category hidden with the legend is not a place a row can land — it only
+  moves somewhere you can see.
 
 ### Categories
 
