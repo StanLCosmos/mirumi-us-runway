@@ -58,6 +58,11 @@ One Redis hash, `mirumi:items`, with one field per row holding that row as
 JSON. Per-row fields mean two people editing different rows never overwrite
 each other. Within a single row, the last save wins.
 
+Row order is a `sort` number per row, ordered inside each category. A move
+writes one row: the moved one takes a value midway between its new
+neighbours. Only when that gap closes up does the whole category get
+renumbered.
+
 `api/_seed.js` holds the board's starting contents. It is written to the
 database once, on the first request against an empty store, and is never read
 again after that — so editing that file does not change a board that is
@@ -78,9 +83,15 @@ the board at 400 rows.
 
 ## Editing the timeline
 
-- **Add** — "+ Add project" in the top bar.
-- **Move** — drag a bar sideways; drag either end to change just the start or
-  just the end. Everything snaps to whole days.
+- **Add** — "+ Add project" in the top bar. New rows join the bottom of their
+  own category.
+- **Move in time** — drag a bar sideways; drag either end to change just the
+  start or just the end. Everything snaps to whole days.
+- **Reorder** — drag a row's label up or down, or use the ↑ ↓ buttons beside
+  it. Rows only move within their own category; to move one to a different
+  category, change the category in the editor. Order is shared, not per
+  person. On a phone the arrows are the way to do it, so that dragging a
+  label still scrolls the page.
 - **Edit** — click a bar, or the pencil in the row label, for names in both
   languages, category, dates and a note.
 - **Filter** — click a colour chip in the legend to hide that category. The

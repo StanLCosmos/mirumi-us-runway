@@ -274,12 +274,26 @@ body.lang-ja .ghead-l .nm{ text-transform:none; letter-spacing:.02em; font-size:
   font-size:12.5px; line-height:1.25; overflow:hidden;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
 }
-.rl .edit{
-  margin-left:auto; flex:0 0 auto; opacity:0; border:0; background:transparent;
-  cursor:pointer; padding:3px 5px; border-radius:5px; color:var(--ink-3); font-size:13px;
+.rl.draggable{ cursor:grab; }
+.rl.reordering{ cursor:grabbing; background:var(--surface-3); }
+.rowctl{ margin-left:auto; flex:0 0 auto; display:flex; gap:1px; }
+.rowctl button{
+  opacity:0; border:0; background:transparent; cursor:pointer;
+  padding:3px 4px; border-radius:5px; color:var(--ink-3);
+  font-size:12px; line-height:1;
 }
-.rl:hover .edit, .rl .edit:focus-visible{ opacity:1; }
-.rl:hover .edit:hover{ background:var(--surface-3); color:var(--ink); }
+.rl:hover .rowctl button, .rowctl button:focus-visible{ opacity:1; }
+.rowctl button:hover{ background:var(--surface-3); color:var(--ink); }
+.rowctl button[disabled]{ opacity:0 !important; cursor:default; }
+.rl:hover .rowctl button[disabled]{ opacity:.25 !important; }
+.dropline{
+  position:absolute; left:0; height:2px; background:var(--focus);
+  z-index:6; pointer-events:none; border-radius:2px;
+}
+.dropline::before{
+  content:""; position:absolute; left:0; top:-3px;
+  width:8px; height:8px; border-radius:50%; background:var(--focus);
+}
 .track{ position:relative; height:var(--rowh); border-bottom:1px solid var(--line); }
 
 .bar-item{
@@ -355,11 +369,11 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
 .ctl.on{ border-color:var(--c-comply); color:var(--c-comply); font-weight:600; }
 
 @media (max-width: 720px){
-  :root{ --lw:136px; --dayw:17px; --rowh:38px; }
+  :root{ --lw:158px; --dayw:17px; --rowh:38px; }
   .brand{ font-size:15px; }
   .rl{ padding:0 6px 0 9px; }
   .rl .nm{ font-size:11.5px; }
-  .rl .edit{ opacity:1; }
+  .rowctl button{ opacity:1; padding:3px 3px; }
   .bar{ padding:9px 12px 8px; gap:8px; }
   .bar-bottom{ flex-wrap:nowrap; }
   .legend{
@@ -465,6 +479,7 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
       emptyP:"Add the first row to start building the timeline. Everyone with the link sees the same board.",
       projects:"Projects", range:"Sep–Dec 2026",
       newT:"New project", editT:"Edit project",
+      up:"Move up", down:"Move down",
       fEn:"Name (English)", fJa:"Name (Japanese)", fCat:"Category",
       fStart:"Start date", fEnd:"End date", fNote:"Note (optional)",
       save:"Save", cancel:"Cancel", del:"Delete",
@@ -493,6 +508,7 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
       emptyP:"最初の行を追加してスケジュールを作り始めてください。リンクを持つ全員が同じ表を見ます。",
       projects:"項目", range:"2026年9〜12月",
       newT:"項目を追加", editT:"項目を編集",
+      up:"上へ移動", down:"下へ移動",
       fEn:"名称（英語）", fJa:"名称（日本語）", fCat:"カテゴリ",
       fStart:"開始日", fEnd:"終了日", fNote:"メモ（任意）",
       save:"保存", cancel:"キャンセル", del:"削除",
@@ -689,8 +705,9 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
       var ca=CATIDX[a.cat]===undefined?99:CATIDX[a.cat];
       var cb=CATIDX[b.cat]===undefined?99:CATIDX[b.cat];
       if(ca!==cb) return ca-cb;
-      if(a.start!==b.start) return a.start<b.start?-1:1;
+      // Manual order wins inside a group; dates only break a tie.
       if((a.sort||0)!==(b.sort||0)) return (a.sort||0)-(b.sort||0);
+      if(a.start!==b.start) return a.start<b.start?-1:1;
       return a.id<b.id?-1:1;
     });
   }
@@ -718,6 +735,14 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
       renderChrome(); renderLegend(); return;
     }
 
+    var groupPos={}, seen={};
+    list.forEach(function(it){
+      seen[it.cat]=(seen[it.cat]||0);
+      groupPos[it.id]={ i:seen[it.cat]++, n:0 };
+    });
+    list.forEach(function(it){ groupPos[it.id].n = seen[it.cat]; });
+
+    rowEls={};
     var lastCat=null;
     list.forEach(function(it){
       if(it.cat!==lastCat){
@@ -736,11 +761,16 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
       var rl=document.createElement("div"); rl.className="rl";
       var nmw=document.createElement("span"); nmw.className="nm"; nmw.textContent=nameOf(it);
       rl.appendChild(nmw);
+      rowEls[it.id]=rl;
       if(canWrite!==false){
-        var eb=document.createElement("button"); eb.className="edit"; eb.type="button";
-        eb.setAttribute("aria-label",t().editT+": "+nameOf(it)); eb.textContent="✎";
-        eb.addEventListener("click",function(){ openSheet(it); });
-        rl.appendChild(eb);
+        var pos=groupPos[it.id] || {i:0,n:1};
+        var ctl=document.createElement("span"); ctl.className="rowctl";
+        ctl.appendChild(rowBtn("\u2191", t().up, it, function(x){ moveRow(x,-1); }, pos.i===0));
+        ctl.appendChild(rowBtn("\u2193", t().down, it, function(x){ moveRow(x,1); }, pos.i===pos.n-1));
+        ctl.appendChild(rowBtn("\u270E", t().editT, it, function(x){ openSheet(x); }, false));
+        rl.appendChild(ctl);
+        rl.classList.add("draggable");
+        attachRowDrag(rl, it);
       }
       grid.appendChild(rl);
 
@@ -782,6 +812,127 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
     bar._out.style.left = bar._outSide==="left"
       ? Math.max(0, l-bar._out.offsetWidth-7)+"px"
       : (l+w)+"px";
+  }
+
+  /* ---------------------- reordering rows ---------------------- */
+  var rowEls = {};          // item id -> its label element, rebuilt each render
+  var dropIndex = null;     // where a row-drag would land
+  var dropEl = null;
+
+  function groupOf(cat){
+    return sortItems(items.filter(function(x){ return x.cat===cat; }));
+  }
+  function indexIn(list, id){
+    for(var i=0;i<list.length;i++) if(list[i].id===id) return i;
+    return -1;
+  }
+
+  /* Give the moved row a sort value between its new neighbours, so one move
+     is one write. Only renumber the group when the gap has collapsed. */
+  function applyOrder(it, newIndex){
+    if(canWrite===false) return;
+    var g = groupOf(it.cat);
+    var cur = indexIn(g, it.id);
+    if(cur<0) return;
+    if(newIndex<0) newIndex=0;
+    if(newIndex>g.length-1) newIndex=g.length-1;
+    if(newIndex===cur) return;
+
+    var arr=g.slice(); arr.splice(cur,1); arr.splice(newIndex,0,it);
+    var before=arr[newIndex-1], after=arr[newIndex+1];
+    var v;
+    if(!before && !after) v = 10;
+    else if(!before)      v = (after.sort||0) - 10;
+    else if(!after)       v = (before.sort||0) + 10;
+    else                  v = ((before.sort||0) + (after.sort||0)) / 2;
+
+    if(before && after && Math.abs((after.sort||0)-(before.sort||0)) < 0.0001){
+      var rows=[];
+      arr.forEach(function(x,i){
+        var want=(i+1)*10;
+        if((x.sort||0)!==want) rows.push(Object.assign({}, x, {sort:want}));
+      });
+      saveMany(rows);
+      return;
+    }
+    save(Object.assign({}, it, {sort:v}));
+  }
+
+  function moveRow(it, dir){
+    var g=groupOf(it.cat);
+    applyOrder(it, indexIn(g, it.id) + dir);
+  }
+
+  function showDropLine(it, clientY){
+    var g=groupOf(it.cat);
+    var boundary=g.length, k;
+    for(k=0;k<g.length;k++){
+      var el=rowEls[g[k].id];
+      if(!el) continue;
+      var r=el.getBoundingClientRect();
+      if(clientY < r.top + r.height/2){ boundary=k; break; }
+    }
+    var cur=indexIn(g, it.id);
+    dropIndex = boundary > cur ? boundary-1 : boundary;
+
+    if(!dropEl){
+      dropEl=document.createElement("div"); dropEl.className="dropline";
+      $("canvas").appendChild(dropEl);
+    }
+    var canvasTop=$("canvas").getBoundingClientRect().top;
+    var anchor = boundary < g.length ? rowEls[g[boundary].id] : rowEls[g[g.length-1].id];
+    if(!anchor){ return; }
+    var ar=anchor.getBoundingClientRect();
+    var y = boundary < g.length ? ar.top : ar.bottom;
+    dropEl.style.top = (y - canvasTop - 1) + "px";
+    dropEl.style.width = (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--lw")) + range.n*dayW()) + "px";
+    dropEl.hidden = (dropIndex === cur);
+  }
+  function hideDropLine(){
+    if(dropEl && dropEl.parentNode) dropEl.parentNode.removeChild(dropEl);
+    dropEl=null; dropIndex=null;
+  }
+
+  /* Mouse only: on touch the label column has to stay scrollable, so the
+     arrow buttons are the reorder path there. */
+  function attachRowDrag(rl, it){
+    var startY=0, active=false, moved=false;
+    rl.addEventListener("pointerdown", function(ev){
+      if(canWrite===false || ev.pointerType!=="mouse" || ev.button!==0) return;
+      if(ev.target.closest && ev.target.closest("button")) return;
+      active=true; moved=false; startY=ev.clientY;
+      rl.setPointerCapture(ev.pointerId);
+    });
+    rl.addEventListener("pointermove", function(ev){
+      if(!active) return;
+      if(!moved && Math.abs(ev.clientY-startY) < 5) return;
+      moved=true; rl.classList.add("reordering");
+      showDropLine(it, ev.clientY);
+      ev.preventDefault();
+    });
+    function finish(ev){
+      if(!active) return;
+      active=false; rl.classList.remove("reordering");
+      try{ rl.releasePointerCapture(ev.pointerId); }catch(e){}
+      var target=dropIndex;
+      var did=moved;
+      hideDropLine();
+      if(did && target!==null) applyOrder(it, target);
+    }
+    rl.addEventListener("pointerup", finish);
+    rl.addEventListener("pointercancel", function(){
+      active=false; rl.classList.remove("reordering"); hideDropLine();
+    });
+  }
+
+  function rowBtn(glyph, label, it, fn, disabled){
+    var b=document.createElement("button"); b.type="button";
+    b.textContent=glyph;
+    b.setAttribute("aria-label", label+": "+nameOf(it));
+    b.title=label;
+    if(disabled) b.disabled=true;
+    else b.addEventListener("click", function(ev){ ev.stopPropagation(); fn(it); });
+    return b;
   }
 
   function nameOf(it){
@@ -958,7 +1109,7 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
       en:en||ja, ja:ja||en, cat:$("fCat").value, start:s, end:e,
       note_en: editing ? (editing.note_en||"") : "",
       note_ja: editing ? (editing.note_ja||"") : "",
-      sort: editing ? (editing.sort||0) : nextSort()
+      sort: editing ? (editing.sort||0) : nextSort($("fCat").value)
     };
     if(lang==="ja") body.note_ja=$("fNote").value.trim();
     else body.note_en=$("fNote").value.trim();
@@ -966,8 +1117,10 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
     save(body, true);
   }
   function showErr(m){ var p=$("sheetErr"); p.textContent=m; p.hidden=false; }
-  function nextSort(){
-    return items.reduce(function(a,x){ return Math.max(a, x.sort||0); },0)+10;
+  function nextSort(cat){
+    return items.reduce(function(a,x){
+      return x.cat===cat ? Math.max(a, x.sort||0) : a;
+    }, 0) + 10;
   }
 
   /* ========================== persistence ========================== */
@@ -1039,6 +1192,27 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
     if(fromSheet) closeSheet();
     if(storage==="none") return;
     api("POST","",normalize(body, body.id)).then(function(){
+      lastJson=""; offline=false; setStatus();
+    }).catch(function(e){
+      if(e && e.status===401){ unlocked=false; setCanWrite(false); openLock(); return; }
+      offline=true; setStatus();
+    });
+  }
+
+  /* One local render, then one request per changed row. Used only by the
+     rare full-group renumber. */
+  function saveMany(rows){
+    if(!rows.length) return;
+    rows.forEach(function(r){
+      var i=-1;
+      for(var k=0;k<items.length;k++) if(items[k].id===r.id){ i=k; break; }
+      if(i>=0) items[i]=r; else items.push(r);
+    });
+    render();
+    if(storage==="none") return;
+    rows.reduce(function(chain, r){
+      return chain.then(function(){ return api("POST","",normalize(r, r.id)); });
+    }, Promise.resolve()).then(function(){
       lastJson=""; offline=false; setStatus();
     }).catch(function(e){
       if(e && e.status===401){ unlocked=false; setCanWrite(false); openLock(); return; }
