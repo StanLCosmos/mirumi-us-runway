@@ -11,6 +11,10 @@ const SEEDED = "mirumi:seeded";
 const FIELDS = ["en", "ja", "cat", "start", "end", "note_en", "note_ja", "sort"];
 const CATS = ["supply", "warehouse", "design", "popup", "ec", "comply"];
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+// Each warm function instance checks the seed flag once, not once per request.
+// Reads are the hot path and the free tier bills per command.
+let seedChecked = false;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function credentials() {
@@ -84,12 +88,15 @@ function authorized(req) {
 }
 
 async function readAll(creds) {
-  const seeded = await redis(creds, ["EXISTS", SEEDED]);
-  if (!seeded) {
-    const command = ["HSET", KEY];
-    for (const [id, row] of Object.entries(SEED)) command.push(id, JSON.stringify(row));
-    await redis(creds, command);
-    await redis(creds, ["SET", SEEDED, "1"]);
+  if (!seedChecked) {
+    const seeded = await redis(creds, ["EXISTS", SEEDED]);
+    if (!seeded) {
+      const command = ["HSET", KEY];
+      for (const [id, row] of Object.entries(SEED)) command.push(id, JSON.stringify(row));
+      await redis(creds, command);
+      await redis(creds, ["SET", SEEDED, "1"]);
+    }
+    seedChecked = true;
   }
   // HGETALL comes back as a flat [field, value, field, value, ...] array.
   const flat = (await redis(creds, ["HGETALL", KEY])) || [];
@@ -139,9 +146,11 @@ export default async function handler(req, res) {
       const input = typeof req.body === "string" ? JSON.parse(req.body || "{}") : req.body || {};
       const parsed = clean(input);
       if (!parsed) return res.status(400).json({ error: "invalid row" });
-      const count = await redis(creds, ["HLEN", KEY]);
       const exists = await redis(creds, ["HEXISTS", KEY, parsed.id]);
-      if (!exists && count >= 400) return res.status(409).json({ error: "board is full" });
+      if (!exists) {
+        const count = await redis(creds, ["HLEN", KEY]);
+        if (count >= 400) return res.status(409).json({ error: "board is full" });
+      }
       await redis(creds, ["HSET", KEY, parsed.id, JSON.stringify(parsed.row)]);
       return res.status(200).json({ ok: true, id: parsed.id });
     }

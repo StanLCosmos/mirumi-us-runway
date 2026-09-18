@@ -1172,7 +1172,9 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
   /* ========================== boot ========================== */
   setCanWrite(false);
   pull();
-  pollTimer = setInterval(function(){ if(!document.hidden) pull(); }, 5000);
+  // 15s, and only for a visible tab: a board left open all day should not
+  // eat the database's monthly command budget. Switching back pulls at once.
+  pollTimer = setInterval(function(){ if(!document.hidden) pull(); }, 15000);
   document.addEventListener("visibilitychange", function(){ if(!document.hidden) pull(); });
 
 })();
