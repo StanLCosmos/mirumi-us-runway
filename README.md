@@ -58,10 +58,17 @@ One Redis hash, `mirumi:items`, with one field per row holding that row as
 JSON. Per-row fields mean two people editing different rows never overwrite
 each other. Within a single row, the last save wins.
 
-Row order is a `sort` number per row, ordered inside each category. A move
-writes one row: the moved one takes a value midway between its new
-neighbours. Only when that gap closes up does the whole category get
-renumbered.
+Categories live in the same hash under a `c__` prefix, so one command still
+reads the whole board. A category is `{en, ja, color, sort}`, with `color` a
+slot number from 1 to 8 that the page maps to a hex pair for light and dark.
+They are written once, on the first request against a board that has none, and
+belong to the board from then on.
+
+Row order, and category order, are `sort` numbers. A move writes one record:
+the moved one takes a value midway between its new neighbours. Only when that
+gap closes up does the group get renumbered. `sort` is stored as a real number
+for exactly this reason — rounding it to an integer would collapse the gaps
+after a few moves.
 
 `api/_seed.js` holds the board's starting contents. It is written to the
 database once, on the first request against an empty store, and is never read
@@ -72,14 +79,16 @@ already live.
 
 | Method | Path | Does |
 |---|---|---|
-| `GET` | `/api/items` | All rows, plus `storage: "kv"` or `"none"` |
+| `GET` | `/api/items` | The whole board: `items`, `cats`, and `storage` |
 | `POST` | `/api/items` | Create or replace one row (JSON body with `id`) |
 | `DELETE` | `/api/items?id=…` | Remove one row |
+| `POST` | `/api/cats` | Create or replace one category |
+| `DELETE` | `/api/cats?id=…` | Remove a category, if it is empty and not the last |
 
-A row is `{id, en, ja, cat, start, end, note_en, note_ja, sort}`. Dates are
-`YYYY-MM-DD`. `cat` is one of `supply`, `warehouse`, `design`, `popup`, `ec`,
-`comply`. The endpoint validates and truncates everything it is given, and caps
-the board at 400 rows.
+A row is `{id, en, ja, cat, start, end, note_en, note_ja, sort}` and a category
+is `{id, en, ja, color, sort}`. Dates are `YYYY-MM-DD`; `cat` is a category id.
+The endpoints validate and truncate everything they are given, and cap the
+board at 400 rows and 24 categories.
 
 ## Editing the timeline
 
@@ -92,6 +101,27 @@ the board at 400 rows.
   category, change the category in the editor. Order is shared, not per
   person. On a phone the arrows are the way to do it, so that dragging a
   label still scrolls the page.
+
+### Categories
+
+Categories are the board's own structure, editable from the page rather than
+from this repository.
+
+- **Add** — "+ Category" in the top bar. New ones join the bottom and take the
+  first unused colour.
+- **Rename and recolour** — the ✎ on a category header. Both languages are
+  edited together, and the colour is one of eight slots (see below).
+- **Reorder** — the ↑ ↓ on a category header. The group and its rows move
+  together.
+- **Delete** — the ✎, then Delete. A category holding projects can't be
+  deleted, and neither can the last one; move its projects elsewhere first.
+
+An empty category keeps its header so you can still rename, move or remove it.
+
+Colours come from a fixed eight-slot palette chosen so that neighbouring
+groups stay distinguishable in both themes and under the common forms of
+colour blindness. Two categories may share a slot if you pick the same one
+twice — the group header and the label on every bar still say which is which.
 - **Edit** — click a bar, or the pencil in the row label, for names in both
   languages, category, dates and a note.
 - **Filter** — click a colour chip in the legend to hide that category. The
@@ -100,8 +130,8 @@ the board at 400 rows.
 
 Key commercial dates (Halloween, Thanksgiving, Black Friday, Cyber Monday, the
 ground-shipping cutoff, Christmas) are drawn as marked lines and shaded bands.
-They live in `MOMENTS` near the top of the script in `index.html`, alongside
-`CATS` if you want to change the categories.
+They live in `MOMENTS` near the top of the script in `index.html`. Categories
+are no longer in the source — they are edited on the page.
 
 ## Running it locally
 
