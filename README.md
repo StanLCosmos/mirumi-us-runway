@@ -130,6 +130,10 @@ from this repository.
   first unused colour.
 - **Rename and recolour** — the ✎ on a category header. Both languages are
   edited together, and the colour is one of eight slots (see below).
+- **Both names are always on screen** — a category header shows the reading
+  language on top and the other underneath, whichever way the toggle is set, so
+  the English and Japanese teams can point at the same row. A category with one
+  name, or the same word in both, shows a single line.
 - **Reorder** — the ↑ ↓ on a category header. The group and its rows move
   together.
 - **Delete** — the ✎, then Delete. A category holding projects can't be

@@ -240,15 +240,24 @@ body.lang-ja .mo .lab{ text-transform:none; letter-spacing:.02em; }
   position:sticky; left:0; z-index:3;
   background:var(--surface-2); border-right:1px solid var(--line-strong);
   border-top:1px solid var(--line); border-bottom:1px solid var(--line);
-  padding:6px 12px; display:flex; align-items:center; gap:8px;
+  padding:7px 12px; display:flex; align-items:center; gap:8px;
 }
 .ghead-l .dot{ width:9px; height:9px; border-radius:3px; background:var(--k); flex:0 0 auto; }
-.ghead-l .nm{ font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; }
-.ghead-l .n{ font-size:11px; color:var(--ink-3); }
+.ghead-l .names{ display:flex; flex-direction:column; min-width:0; gap:1px; }
+.ghead-l .nm{
+  font-size:11px; font-weight:700; letter-spacing:.07em; text-transform:uppercase;
+  overflow-wrap:anywhere;
+}
+.ghead-l .alt{
+  font-size:10.5px; font-weight:500; color:var(--ink-3);
+  letter-spacing:.01em; text-transform:none; overflow-wrap:anywhere;
+}
+.ghead-l .n{ font-size:11px; color:var(--ink-3); align-self:center; }
 .ghead-r{
   background:var(--surface-2); border-top:1px solid var(--line); border-bottom:1px solid var(--line);
 }
 body.lang-ja .ghead-l .nm{ text-transform:none; letter-spacing:.02em; font-size:12px; }
+body.lang-ja .ghead-l .alt{ text-transform:uppercase; letter-spacing:.06em; font-size:10px; }
 
 /* rows */
 .rl{
@@ -603,12 +612,19 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
     return "var(--c"+n+")";
   }
   function catColor(id){ var c=catOf(id); return slotVar(c ? c.color : 1); }
-  function catName(id){
+  /* A category carries both names everywhere it is shown: the reading
+     language leads, the other follows. `secondary` is empty when there is
+     nothing to add — no second name, or the two are the same word. */
+  function catNames(id){
     var c=catOf(id);
-    if(!c) return id;                         // a row pointing at a gone category
-    var a = lang==="ja" ? c.ja : c.en;
-    return (a && a.trim()) || c.en || c.ja || id;
+    if(!c) return { primary:id, secondary:"" };   // a row pointing at a gone category
+    var en=(c.en||"").trim(), ja=(c.ja||"").trim();
+    var primary   = lang==="ja" ? (ja||en) : (en||ja);
+    var secondary = lang==="ja" ? en : ja;
+    if(!secondary || secondary===primary) secondary="";
+    return { primary: primary||id, secondary: secondary };
   }
+  function catName(id){ return catNames(id).primary; }
   function nextFreeSlot(){
     var used={}; cats.forEach(function(c){ used[c.color]=true; });
     for(var n=1;n<=PALETTE;n++) if(!used[n]) return n;
@@ -851,9 +867,16 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
       var gl=document.createElement("div"); gl.className="ghead-l";
       gl.style.setProperty("--k", catColor(c.id));
       var dot=document.createElement("span"); dot.className="dot";
-      var nm=document.createElement("span"); nm.className="nm"; nm.textContent=catName(c.id);
+      var names=catNames(c.id);
+      var box=document.createElement("span"); box.className="names";
+      var nm=document.createElement("span"); nm.className="nm"; nm.textContent=names.primary;
+      box.appendChild(nm);
+      if(names.secondary){
+        var alt=document.createElement("span"); alt.className="alt";
+        alt.textContent=names.secondary; box.appendChild(alt);
+      }
       var n=document.createElement("span"); n.className="n mono"; n.textContent=g.rows.length;
-      gl.appendChild(dot); gl.appendChild(nm); gl.appendChild(n);
+      gl.appendChild(dot); gl.appendChild(box); gl.appendChild(n);
       if(canWrite!==false && !c.orphan){
         var ci=CATIDX[c.id];
         var cc=document.createElement("span"); cc.className="catctl";
@@ -1145,7 +1168,9 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
     var h=document.createElement("div"); h.className="h";
     h.style.setProperty("--k",catColor(it.cat));
     var dot=document.createElement("span"); dot.className="dot";
-    var c=document.createElement("span"); c.className="c"; c.textContent=catName(it.cat);
+    var cn=catNames(it.cat);
+    var c=document.createElement("span"); c.className="c";
+    c.textContent = cn.secondary ? cn.primary+" · "+cn.secondary : cn.primary;
     h.appendChild(dot); h.appendChild(c);
     var n=document.createElement("div"); n.className="n"; n.textContent=nameOf(it);
     var len=diffDays(parse(it.start),parse(it.end))+1;
@@ -1282,7 +1307,9 @@ body.lang-ja .f label{ text-transform:none; letter-spacing:.02em; font-size:11.5
 
     btn.addEventListener("click", function(){ run(true); });
     from.addEventListener("blur", function(){ run(false); });
-    to.addEventListener("input", function(){ state.auto=false; });
+    // Typing in the target field always wins: it both claims the field and
+    // discards any translation still on its way back.
+    to.addEventListener("input", function(){ state.auto=false; state.seq++; });
     from._trState=state;
   }
 
