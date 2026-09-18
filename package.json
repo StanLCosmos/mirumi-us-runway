@@ -1,0 +1,8 @@
+{
+  "name": "mirumi-us-runway",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared bilingual launch timeline for the mirumi US rollout",
+  "engines": { "node": ">=20" }
+}
